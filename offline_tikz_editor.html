@@ -19,15 +19,36 @@
             width: 100%;
             height: 100%;
         }
+        
+        /* --- PLAIN CSS FOR STANDALONE FILE (Fixes highlighting bug) --- */
         .tool-btn {
-            @apply p-3 rounded-lg text-sm font-medium transition-colors shadow-md; /* Increased padding */
+            padding: 0.75rem; /* p-3 */
+            border-radius: 0.5rem; /* rounded-lg */
+            font-size: 0.875rem; /* text-sm */
+            font-weight: 500; /* font-medium */
+            transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, box-shadow; /* transition-colors */
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+            transition-duration: 150ms;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); /* shadow-md */
         }
+        
         .tool-btn.active {
-            @apply bg-blue-600 text-white;
+            background-color: #f59e0b; /* bg-yellow-500 */
+            color: #000000; /* text-black */
+            /* ring-4 ring-yellow-500 ring-offset-1 */
+            box-shadow: 0 0 0 2px #ffffff, 0 0 0 4px #f59e0b, 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
         }
+        
         .tool-btn:not(.active) {
-            @apply text-gray-700 bg-white hover:bg-gray-100;
+            color: #374151; /* text-gray-700 */
+            background-color: #ffffff; /* bg-white */
         }
+        
+        .tool-btn:not(.active):hover {
+            background-color: #f3f4f6; /* hover:bg-gray-100 */
+        }
+        /* --- END OF PLAIN CSS FIX --- */
+
         /* Style for the temporary textarea used for copying */
         #copy-textarea {
             position: absolute;
@@ -38,7 +59,8 @@
         /* Custom scrollbar for the code output */
         pre {
             max-height: 40vh;
-            @apply bg-gray-900 text-white p-4 rounded-lg overflow-auto;
+            /* @apply bg-gray-900 text-white p-4 rounded-lg overflow-auto; */
+            /* Converted to inline classes on the <pre> tag */
         }
         /* For webkit browsers */
         pre::-webkit-scrollbar {
@@ -81,10 +103,10 @@
             
             <!-- Floating Vertical Toolbar -->
             <div id="toolbar" class="absolute left-4 top-4 z-10 flex flex-col items-center space-y-2 rounded-lg p-2 bg-gray-200/50 backdrop-blur-sm">
-                <!-- New Select/Move Icon (Pointer) -->
+                <!-- *** FIXED SELECT ICON (STANDARD CURSOR) *** -->
                 <button id="tool-select" class="tool-btn active" title="Select/Move Tool (V)">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l5-2 2 8z" />
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M3.05 3.05a.5.5 0 01.707 0L19.5 18.793V6.5a.5.5 0 011 0v13a.5.5 0 01-.5.5h-13a.5.5 0 010-1h12.293L3.05 3.757a.5.5 0 010-.707z" />
                     </svg>
                 </button>
                 <!-- Box Select Icon -->
@@ -97,10 +119,12 @@
                 <button id="tool-node" class="tool-btn" title="Add Node Tool (N)">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" /></svg>
                 </button>
-                <!-- New Edge Icon (Single Two-way Arrow) -->
+                <!-- *** FIXED EDGE ICON (GRAPH THEORY STYLE) *** -->
                 <button id="tool-edge" class="tool-btn" title="Add Edge Tool (E)">
-                     <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 16l-4-4m0 0l4-4m-4 4h18m0 0l-4 4m0 0l4-4" />
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" fill="currentColor">
+                        <line x1="5" y1="19" x2="19" y2="5" />
+                        <circle cx="5" cy="19" r="3" />
+                        <circle cx="19" cy="5" r="3" />
                     </svg>
                 </button>
                 <!-- Directed Edge Icon -->
@@ -221,7 +245,8 @@
                         Download .tex File
                     </button>
                 </div>
-                <pre><code id="tikz-output">% Add nodes and edges to generate TikZ code...</code></pre>
+                <!-- Converted @apply to tailwind classes -->
+                <pre class="bg-gray-900 text-white p-4 rounded-lg overflow-auto" style="max-height: 40vh;"><code id="tikz-output">% Add nodes and edges to generate TikZ code...</code></pre>
             </div>
 
         </div>
