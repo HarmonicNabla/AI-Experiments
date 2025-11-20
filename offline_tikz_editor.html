@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline TikZ Graph Generator</title>
+    <!-- Using Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for the app */
+        body {
+            font-family: 'Inter', sans-serif;
+            overscroll-behavior: none; /* Prevents "pull-to-refresh" */
+        }
+        #canvas {
+            display: block;
+            background-color: #f9fafb; /* gray-50 */
+            cursor: crosshair;
+            width: 100%;
+            height: 100%;
+        }
+        .tool-btn {
+            @apply p-3 rounded-lg text-sm font-medium transition-colors shadow-md; /* Increased padding */
+        }
+        .tool-btn.active {
+            @apply bg-blue-600 text-white;
+        }
+        .tool-btn:not(.active) {
+            @apply text-gray-700 bg-white hover:bg-gray-100;
+        }
+        /* Style for the temporary textarea used for copying */
+        #copy-textarea {
+            position: absolute;
+            left: -9999px;
+            top: 0;
+            opacity: 0;
+        }
+        /* Custom scrollbar for the code output */
+        pre {
+            max-height: 40vh;
+            @apply bg-gray-900 text-white p-4 rounded-lg overflow-auto;
+        }
+        /* For webkit browsers */
+        pre::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        pre::-webkit-scrollbar-track {
+            background: #2d3748; /* gray-800 */
+        }
+        pre::-webkit-scrollbar-thumb {
+            background: #718096; /* gray-500 */
+            border-radius: 4px;
+        }
+        pre::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0; /* gray-400 */
+        }
+        #selection-box {
+            position: absolute;
+            background-color: rgba(0, 110, 255, 0.1);
+            border: 1px dashed #007bff;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen overflow-hidden flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-white shadow-md z-10">
+        <div class="container mx-auto px-4 py-3 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-gray-800">Offline TikZ Graph Generator</h1>
+        </div>
+    </header>
+
+    <!-- Main Content (Split Screen) -->
+    <div class="flex-1 grid grid-cols-1 md:grid-cols-3 xl:grid-cols-3 gap-0 overflow-hidden">
+
+        <!-- Left: Canvas Workspace -->
+        <div id="canvas-container" class="md:col-span-2 xl:col-span-2 bg-gray-50 relative overflow-hidden h-full">
+            <canvas id="canvas"></canvas>
+            
+            <!-- Floating Vertical Toolbar -->
+            <div id="toolbar" class="absolute left-4 top-4 z-10 flex flex-col items-center space-y-2 rounded-lg p-2 bg-gray-200/50 backdrop-blur-sm">
+                <!-- New Select/Move Icon (Pointer) -->
+                <button id="tool-select" class="tool-btn active" title="Select/Move Tool (V)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 15l-2 5L9 9l5-2 2 8z" />
+                    </svg>
+                </button>
+                <!-- Box Select Icon -->
+                <button id="tool-box-select" class="tool-btn" title="Box Select Tool (B)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                         <path stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="3 3" d="M3 3h18v18H3V3z" />
+                    </svg>
+                </button>
+                <!-- Node Icon -->
+                <button id="tool-node" class="tool-btn" title="Add Node Tool (N)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" /></svg>
+                </button>
+                <!-- New Edge Icon (Single Two-way Arrow) -->
+                <button id="tool-edge" class="tool-btn" title="Add Edge Tool (E)">
+                     <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M7 16l-4-4m0 0l4-4m-4 4h18m0 0l-4 4m0 0l4-4" />
+                    </svg>
+                </button>
+                <!-- Directed Edge Icon -->
+                <button id="tool-dir-edge" class="tool-btn" title="Add Arrow Tool (D)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                    </svg>
+                </button>
+                <!-- New Curve Icon -->
+                <button id="tool-curve" class="tool-btn" title="Edit Curve Tool (C)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16C4 10 8 4 16 4" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16m-2 0a2 2 0 104 0 2 2 0 10-4 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M16 4m-2 0a2 2 0 104 0 2 2 0 10-4 0z" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div id="selection-box" class="hidden"></div>
+            
+            <!-- Info overlay -->
+            <div class="absolute bottom-4 left-4 bg-white/80 backdrop-blur-sm p-2 rounded-lg shadow text-xs text-gray-700">
+                Zoom: <span id="zoom-level">1.00</span> | 
+                Coords: (<span id="mouse-x">0</span>, <span id="mouse-y">0</span>) |
+                Tool: <span id="tool-name">Select</span>
+            </div>
+        </div>
+
+        <!-- Right: Controls & Output -->
+        <div class="md:col-span-1 xl:col-span-1 bg-white p-4 overflow-y-auto h-full shadow-lg">
+            
+            <!-- Instructions -->
+            <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <h3 class="font-semibold text-blue-800 mb-2">How to Use:</h3>
+                <ul class="list-disc list-inside text-sm text-blue-700 space-y-1">
+                    <li>Use <strong>Toolbar</strong> to switch tools (V, B, N, E, D, C).</li>
+                    <li><strong>Tools stay active</strong> until you pick another.</li>
+                    <li><strong>Pan:</strong> Click + Drag <strong>Middle Mouse Button</strong>.</li>
+                    <li><strong>Zoom:</strong> Use <strong>Mouse Wheel</strong>.</li>
+                    <li><strong>Curve Edges:</strong> Use <strong>Edit Curve (C)</strong> tool, click an edge, then drag the yellow handles.</li>
+                </ul>
+            </div>
+
+            <!-- Property Inspector -->
+            <div id="inspector-panel" class="hidden mb-4">
+                <h2 class="text-lg font-semibold mb-2" id="inspector-title">Properties</h2>
+                <div class="space-y-3">
+                    <!-- Node Properties -->
+                    <div id="node-props" class="space-y-3">
+                        <div id="node-label-group">
+                            <label for="node-label" class="block text-sm font-medium text-gray-700">Label (LaTeX)</label>
+                            <input type="text" id="node-label" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="node-color" class="block text-sm font-medium text-gray-700">Color</label>
+                            <select id="node-color" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></select>
+                        </div>
+                        <div id="node-label-pos-group">
+                            <label for="node-label-pos" class="block text-sm font-medium text-gray-700">Label Position</label>
+                            <select id="node-label-pos" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                                <option value="anchor=south">anchor=south</option>
+                                <option value="anchor=north">anchor=north</option>
+                                <option value="anchor=east">anchor=east</option>
+                                <option value="anchor=west">anchor=west</option>
+                                <option value="above">above</option>
+                                <option value="below">below</option>
+                                <option value="left">left</option>
+                                <option value="right">right</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Edge Properties -->
+                    <div id="edge-props" class="space-y-3">
+                        <div>
+                            <label for="edge-color" class="block text-sm font-medium text-gray-700">Color</label>
+                            <select id="edge-color" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"></select>
+                        </div>
+                        <div>
+                            <label for="edge-style" class="block text-sm font-medium text-gray-700">Style</label>
+                            <select id="edge-style" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                                <option value="thick">thick</option>
+                                <option value="thin">thin</option>
+                                <option value="dashed">dashed</option>
+                                <option value="dotted">dotted</option>
+                            </select>
+                        </div>
+                        <!-- Toggle for directed edge -->
+                        <div id="edge-directed-group">
+                             <label class="flex items-center">
+                                <input type="checkbox" id="edge-directed" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                                <span class="ml-2 text-sm text-gray-700">Directed (Show Arrow)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <!-- General Properties -->
+                    <div>
+                        <button id="delete-btn" class="w-full justify-center inline-flex items-center rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+                            Delete Selected
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Default Text -->
+            <div id="inspector-placeholder" class="text-center text-gray-500 p-4 border-2 border-dashed rounded-lg">
+                Select an element to see its properties.
+            </div>
+
+            <!-- TikZ Output -->
+            <div class="mt-6">
+                <!-- *** BUTTONS MOVED HERE *** -->
+                <h2 class="text-lg font-semibold mb-2">Live TikZ Output</h2>
+                <div class="mb-3 flex space-x-3">
+                    <button id="copy-btn" class="flex-1 justify-center inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Copy TikZ Code
+                    </button>
+                    <button id="export-btn" class="flex-1 justify-center inline-flex items-center rounded-md border border-transparent bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+                        Download .tex File
+                    </button>
+                </div>
+                <pre><code id="tikz-output">% Add nodes and edges to generate TikZ code...</code></pre>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Temporary textarea for copy-to-clipboard -->
+    <textarea id="copy-textarea"></textarea>
+
+    <!-- JavaScript Logic -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DOM Elements ---
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const canvasContainer = document.getElementById('canvas-container');
+            const selectionBoxEl = document.getElementById('selection-box');
+            
+            // Toolbar
+            const toolSelectBtn = document.getElementById('tool-select');
+            const toolBoxSelectBtn = document.getElementById('tool-box-select');
+            const toolNodeBtn = document.getElementById('tool-node');
+            const toolEdgeBtn = document.getElementById('tool-edge');
+            const toolDirEdgeBtn = document.getElementById('tool-dir-edge');
+            const toolCurveBtn = document.getElementById('tool-curve');
+            const toolbar = document.getElementById('toolbar');
+            
+            // Inspector
+            const inspectorPanel = document.getElementById('inspector-panel');
+            const inspectorPlaceholder = document.getElementById('inspector-placeholder');
+            const inspectorTitle = document.getElementById('inspector-title');
+            const nodeProps = document.getElementById('node-props');
+            const edgeProps = document.getElementById('edge-props');
+            const nodeLabelInput = document.getElementById('node-label');
+            const nodeLabelGroup = document.getElementById('node-label-group');
+            const nodeColorInput = document.getElementById('node-color');
+            const nodeLabelPosInput = document.getElementById('node-label-pos');
+            const nodeLabelPosGroup = document.getElementById('node-label-pos-group');
+            const edgeColorInput = document.getElementById('edge-color');
+            const edgeStyleInput = document.getElementById('edge-style');
+            const edgeDirectedCheckbox = document.getElementById('edge-directed');
+            const edgeDirectedGroup = document.getElementById('edge-directed-group');
+            const deleteBtn = document.getElementById('delete-btn');
+
+            // Output
+            const tikzOutput = document.getElementById('tikz-output');
+            const copyBtn = document.getElementById('copy-btn');
+            const exportBtn = document.getElementById('export-btn');
+            const copyTextarea = document.getElementById('copy-textarea');
+
+            // Info Overlay
+            const zoomLevelEl = document.getElementById('zoom-level');
+            const mouseXEl = document.getElementById('mouse-x');
+            const mouseYEl = document.getElementById('mouse-y');
+            const toolNameEl = document.getElementById('tool-name');
+
+            // --- Constants ---
+            const TIKZ_SCALE = 0.1; // 10 canvas pixels = 1 TikZ unit
+            const NODE_RADIUS = 5; // Canvas radius
+            const TIKZ_NODE_RADIUS = 3; // TikZ radius in pt
+            const NODE_HIT_RADIUS = 10; // Click radius for nodes
+            const EDGE_HIT_RADIUS = 8;  // Click radius for edges
+            const CONTROL_POINT_RADIUS = 4;
+            const ZOOM_SENSITIVITY = 1.1;
+            const TIKZ_COLORS = [
+                'black', 'red', 'blue', 'green', 'yellow', 'orange', 
+                'purple', 'brown', 'gray', 'darkgray', 'lightgray', 'white', 'cyan', 'magenta'
+            ];
+            const BEZIER_HIT_SEGMENTS = 10; // Segments to check for Bezier hit
+
+            // --- App State ---
+            let nodes = [];
+            let edges = [];
+            let state = {
+                selectedTool: 'select', // 'select', 'box-select', 'node', 'edge', 'dir-edge', 'curve'
+                selectedItems: [], // Array of { type: 'node', id: ... } or { type: 'edge', id: ... }
+                draggingItem: null, // The single node or control point being dragged
+                isPanning: false,
+                isDrawingEdge: false,
+                isDrawingBox: false,
+                selectionBoxStart: { x: 0, y: 0 },
+                edgeStartNode: null,
+                lastMousePos: { x: 0, y: 0 },
+                cameraOffset: { x: 0, y: 0 },
+                cameraZoom: 1,
+                mouseWorldPos: { x: 0, y: 0 }
+            };
+
+            // --- Core Functions ---
+
+            function initialize() {
+                // Populate color dropdowns
+                TIKZ_COLORS.forEach(color => {
+                    const option1 = new Option(color, color);
+                    const option2 = new Option(color, color);
+                    nodeColorInput.add(option1);
+                    edgeColorInput.add(option2);
+                });
+                
+                resizeCanvas();
+                setTool('select');
+                draw();
+                generateTikz();
+            }
+
+            function resizeCanvas() {
+                canvas.width = canvasContainer.clientWidth * window.devicePixelRatio;
+                canvas.height = canvasContainer.clientHeight * window.devicePixelRatio;
+                ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+                draw();
+            }
+
+            // Observe container resizing
+            new ResizeObserver(resizeCanvas).observe(canvasContainer);
+
+            /**
+             * Main render loop
+             */
+            function draw() {
+                ctx.save();
+                
+                // Clear canvas
+                ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Apply camera transformations
+                ctx.translate(state.cameraOffset.x, state.cameraOffset.y);
+                ctx.scale(state.cameraZoom, state.cameraZoom);
+
+                // --- Draw Edges ---
+                edges.forEach(edge => {
+                    const startNode = findNodeById(edge.startNodeId);
+                    const endNode = findNodeById(edge.endNodeId);
+                    if (!startNode || !endNode) return;
+
+                    // Draw selection highlight for edge
+                    if (isItemSelected('edge', edge.id)) {
+                        ctx.strokeStyle = 'rgba(0, 150, 255, 0.5)';
+                        ctx.lineWidth = 10 / state.cameraZoom;
+                        ctx.beginPath();
+                        ctx.moveTo(startNode.x, startNode.y);
+                        if (edge.control1 && edge.control2) {
+                             ctx.bezierCurveTo(
+                                edge.control1.x, edge.control1.y,
+                                edge.control2.x, edge.control2.y,
+                                endNode.x, endNode.y
+                            );
+                        } else {
+                            ctx.lineTo(endNode.x, endNode.y);
+                        }
+                        ctx.stroke();
+
+                        // Draw control points *only* if curve tool is active
+                        if (state.selectedTool === 'curve' && edge.control1 && edge.control2) {
+                            drawControlPoint(edge.control1);
+                            drawControlPoint(edge.control2);
+                            // Draw lines to control points
+                            ctx.strokeStyle = '#FFD700'; // Gold
+                            ctx.lineWidth = 1 / state.cameraZoom;
+                            ctx.setLineDash([2, 2]);
+                            ctx.beginPath();
+                            ctx.moveTo(startNode.x, startNode.y);
+                            ctx.lineTo(edge.control1.x, edge.control1.y);
+                            ctx.stroke();
+                            ctx.beginPath();
+                            ctx.moveTo(endNode.x, endNode.y);
+                            ctx.lineTo(edge.control2.x, edge.control2.y);
+                            ctx.stroke();
+                            ctx.setLineDash([]);
+                        }
+                    }
+
+                    // Draw edge
+                    ctx.strokeStyle = edge.color;
+                    ctx.lineWidth = getLineWidth(edge.style);
+                    setLineDash(edge.style);
+
+                    ctx.beginPath();
+                    ctx.moveTo(startNode.x, startNode.y);
+                    
+                    if (edge.control1 && edge.control2) {
+                        ctx.bezierCurveTo(
+                            edge.control1.x, edge.control1.y,
+                            edge.control2.x, edge.control2.y,
+                            endNode.x, endNode.y
+                        );
+                    } else {
+                        ctx.lineTo(endNode.x, endNode.y);
+                    }
+                    ctx.stroke();
+                    ctx.setLineDash([]); // Reset dash
+
+                    // *** NEW ARROWHEAD LOGIC ***
+                    if (edge.directed) {
+                        let p1 = endNode, p2 = startNode;
+                        
+                        if (isEdgeCurved(edge, startNode, endNode)) {
+                            p1 = getBezierPoint(1, startNode, edge.control1, edge.control2, endNode);
+                            p2 = getBezierPoint(0.95, startNode, edge.control1, edge.control2, endNode);
+                        } else {
+                            p1 = endNode;
+                            p2 = startNode;
+                        }
+                        
+                        const angle = Math.atan2(p1.y - p2.y, p1.x - p2.x);
+                        
+                        // Adjust p1 to be on the edge of the node's circle
+                        const scaledRadius = (NODE_RADIUS + 2) / state.cameraZoom; // A bit outside the node
+                        const arrowTipX = p1.x - scaledRadius * Math.cos(angle);
+                        const arrowTipY = p1.y - scaledRadius * Math.sin(angle);
+                        
+                        const size = 12 / state.cameraZoom; // Slightly larger
+                        ctx.fillStyle = edge.color;
+                        ctx.beginPath();
+                        ctx.moveTo(arrowTipX, arrowTipY);
+                        ctx.lineTo(arrowTipX - size * Math.cos(angle - Math.PI / 6), arrowTipY - size * Math.sin(angle - Math.PI / 6));
+                        ctx.lineTo(arrowTipX - size * Math.cos(angle + Math.PI / 6), arrowTipY - size * Math.sin(angle + Math.PI / 6));
+                        ctx.closePath();
+                        ctx.fill();
+                    }
+                });
+
+                // Ghost edge
+                if (state.isDrawingEdge && state.edgeStartNode) {
+                    ctx.strokeStyle = '#888';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.moveTo(state.edgeStartNode.x, state.edgeStartNode.y);
+                    ctx.lineTo(state.mouseWorldPos.x, state.mouseWorldPos.y);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+
+                // --- Draw Nodes ---
+                nodes.forEach(node => {
+                    // Draw selection highlight
+                    if (isItemSelected('node', node.id)) {
+                        ctx.fillStyle = 'rgba(0, 150, 255, 0.5)';
+                        ctx.beginPath();
+                        ctx.arc(node.x, node.y, NODE_RADIUS + (5 / state.cameraZoom), 0, 2 * Math.PI);
+                        ctx.fill();
+                    }
+
+                    // Draw node
+                    ctx.fillStyle = node.color;
+                    ctx.beginPath();
+                    ctx.arc(node.x, node.y, NODE_RADIUS, 0, 2 * Math.PI);
+                    ctx.fill();
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 1 / state.cameraZoom;
+                    ctx.stroke();
+
+                    // Draw label (not scaling fonts for readability)
+                    ctx.save();
+                    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+                    const screenPos = worldToScreen(node.x, node.y);
+                    ctx.font = '12px Inter';
+                    ctx.fillStyle = 'black';
+                    
+                    const [anchor, offset] = getLabelPosition(node.labelPosition, 10);
+                    ctx.textAlign = anchor.h;
+                    ctx.textBaseline = anchor.v;
+                    ctx.fillText(node.label, screenPos.x + offset.x, screenPos.y + offset.y);
+                    ctx.restore();
+                });
+                
+                ctx.restore();
+                requestAnimationFrame(draw);
+            }
+
+            function drawControlPoint(pos) {
+                ctx.fillStyle = '#FFD700'; // Gold
+                ctx.strokeStyle = '#333';
+                ctx.lineWidth = 1 / state.cameraZoom;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, CONTROL_POINT_RADIUS / state.cameraZoom, 0, 2 * Math.PI);
+                ctx.fill();
+                ctx.stroke();
+            }
+
+            // --- Coordinate Conversion ---
+
+            function getMousePos(event) {
+                const rect = canvas.getBoundingClientRect();
+                return {
+                    x: event.clientX - rect.left,
+                    y: event.clientY - rect.top
+                };
+            }
+
+            function screenToWorld(screenX, screenY) {
+                return {
+                    x: (screenX - state.cameraOffset.x) / state.cameraZoom,
+                    y: (screenY - state.cameraOffset.y) / state.cameraZoom
+                };
+            }
+
+            function worldToScreen(worldX, worldY) {
+                return {
+                    x: (worldX * state.cameraZoom) + state.cameraOffset.x,
+                    y: (worldY * state.cameraZoom) + state.cameraOffset.y
+                };
+            }
+
+            // --- Hit Detection ---
+
+            function getHitNode(worldPos) {
+                for (let i = nodes.length - 1; i >= 0; i--) {
+                    const node = nodes[i];
+                    const dist = Math.hypot(node.x - worldPos.x, node.y - worldPos.y);
+                    if (dist < NODE_HIT_RADIUS / state.cameraZoom) {
+                        return node;
+                    }
+                }
+                return null;
+            }
+            
+            function getHitEdgeControlPoint(worldPos) {
+                if (state.selectedTool !== 'curve' || state.selectedItems.length !== 1 || state.selectedItems[0].type !== 'edge') {
+                    return null;
+                }
+                
+                const edge = findEdgeById(state.selectedItems[0].id);
+                if (!edge || !edge.control1 || !edge.control2) return null;
+
+                const hitRadius = (CONTROL_POINT_RADIUS + 4) / state.cameraZoom; 
+
+                const c1_dist = Math.hypot(edge.control1.x - worldPos.x, edge.control1.y - worldPos.y);
+                if (c1_dist < hitRadius) {
+                    return { edge, point: 'c1' };
+                }
+                
+                const c2_dist = Math.hypot(edge.control2.x - worldPos.x, edge.control2.y - worldPos.y);
+                 if (c2_dist < hitRadius) {
+                    return { edge, point: 'c2' };
+                }
+                return null;
+            }
+            
+            function pointToSegmentDistance(p, v, w) {
+                const l2 = Math.hypot(w.x - v.x, w.y - v.y) ** 2;
+                if (l2 === 0) return Math.hypot(p.x - v.x, p.y - v.y);
+                let t = ((p.x - v.x) * (w.x - v.x) + (p.y - v.y) * (w.y - v.y)) / l2;
+                t = Math.max(0, Math.min(1, t));
+                const projection = {
+                    x: v.x + t * (w.x - v.x),
+                    y: v.y + t * (w.y - v.y)
+                };
+                return Math.hypot(p.x - projection.x, p.y - projection.y);
+            }
+
+            function getBezierPoint(t, p0, p1, p2, p3) {
+                const c = (1 - t);
+                const t2 = t * t;
+                const c2 = c * c;
+                const t3 = t2 * t;
+                const c3 = c2 * c;
+                
+                const x = c3 * p0.x + 3 * c2 * t * p1.x + 3 * c * t2 * p2.x + t3 * p3.x;
+                const y = c3 * p0.y + 3 * c2 * t * p1.y + 3 * c * t2 * p2.y + t3 * p3.y;
+                return { x, y };
+            }
+
+            function getHitEdge(worldPos) {
+                const hitRadius = EDGE_HIT_RADIUS / state.cameraZoom;
+                
+                for (let i = edges.length - 1; i >= 0; i--) {
+                    const edge = edges[i];
+                    const startNode = findNodeById(edge.startNodeId);
+                    const endNode = findNodeById(edge.endNodeId);
+                    if (!startNode || !endNode) continue;
+
+                    let minDistance = Infinity;
+
+                    if (isEdgeCurved(edge, startNode, endNode)) {
+                        // Approximate by checking segments
+                        let lastPoint = startNode;
+                        for (let j = 1; j <= BEZIER_HIT_SEGMENTS; j++) {
+                            const t = j / BEZIER_HIT_SEGMENTS;
+                            const currentPoint = getBezierPoint(t, startNode, edge.control1, edge.control2, endNode);
+                            const dist = pointToSegmentDistance(worldPos, lastPoint, currentPoint);
+                            if (dist < minDistance) minDistance = dist;
+                            lastPoint = currentPoint;
+                        }
+                    } else {
+                        // Straight line
+                        minDistance = pointToSegmentDistance(worldPos, startNode, endNode);
+                    }
+                    
+                    if (minDistance < hitRadius) {
+                        return edge;
+                    }
+                }
+                return null;
+            }
+
+            // --- Event Handlers ---
+
+            canvas.addEventListener('mousedown', (e) => {
+                const mousePos = getMousePos(e);
+                state.mouseWorldPos = screenToWorld(mousePos.x, mousePos.y);
+                state.lastMousePos = mousePos;
+
+                if (e.button === 1) { // Pan (Middle mouse button)
+                    state.isPanning = true;
+                    canvas.style.cursor = 'grabbing';
+                    e.preventDefault();
+                    return;
+                }
+
+                if (e.button === 0) { // Left mouse button
+                    switch (state.selectedTool) {
+                        case 'select': {
+                            const hitNode = getHitNode(state.mouseWorldPos);
+                            if (hitNode) {
+                                state.draggingItem = hitNode;
+                                canvas.style.cursor = 'grabbing';
+                                if (!isItemSelected('node', hitNode.id)) {
+                                    setSelection([{ type: 'node', id: hitNode.id }]);
+                                }
+                            } else {
+                                const hitEdge = getHitEdge(state.mouseWorldPos);
+                                if (hitEdge) {
+                                    setSelection([{ type: 'edge', id: hitEdge.id }]);
+                                } else {
+                                    setSelection([]);
+                                    state.isPanning = true;
+                                    canvas.style.cursor = 'grabbing';
+                                }
+                            }
+                            break;
+                        }
+                        case 'box-select':
+                            state.isDrawingBox = true;
+                            state.selectionBoxStart = mousePos;
+                            selectionBoxEl.style.left = `${mousePos.x}px`;
+                            selectionBoxEl.style.top = `${mousePos.y}px`;
+                            selectionBoxEl.style.width = '0px';
+                            selectionBoxEl.style.height = '0px';
+                            selectionBoxEl.classList.remove('hidden');
+                            break;
+                        
+                        case 'node':
+                            addNode(state.mouseWorldPos.x, state.mouseWorldPos.y);
+                            break;
+
+                        case 'edge':
+                        case 'dir-edge': {
+                            const node = getHitNode(state.mouseWorldPos);
+                            if (node) {
+                                if (!state.isDrawingEdge) {
+                                    state.isDrawingEdge = true;
+                                    state.edgeStartNode = node;
+                                } else {
+                                    if (node.id !== state.edgeStartNode.id) {
+                                        const isDirected = state.selectedTool === 'dir-edge';
+                                        addEdge(state.edgeStartNode.id, node.id, isDirected);
+                                    }
+                                    state.isDrawingEdge = false;
+                                    state.edgeStartNode = null;
+                                }
+                            }
+                            break;
+                        }
+                        case 'curve': {
+                             const hitControl = getHitEdgeControlPoint(state.mouseWorldPos);
+                            if (hitControl) {
+                                state.draggingItem = hitControl;
+                                canvas.style.cursor = 'grabbing';
+                                return;
+                            }
+                            const hitEdge = getHitEdge(state.mouseWorldPos);
+                            if (hitEdge) {
+                                setSelection([{ type: 'edge', id: hitEdge.id }]);
+                            } else {
+                                setSelection([]);
+                            }
+                            break;
+                        }
+                    }
+                }
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                const mousePos = getMousePos(e);
+                state.mouseWorldPos = screenToWorld(mousePos.x, mousePos.y);
+                updateMouseCoords(mousePos.x, mousePos.y);
+
+                const dx = mousePos.x - state.lastMousePos.x;
+                const dy = mousePos.y - state.lastMousePos.y;
+
+                if (state.isPanning) {
+                    state.cameraOffset.x += dx;
+                    state.cameraOffset.y += dy;
+                } else if (state.isDrawingBox) {
+                    const x = Math.min(mousePos.x, state.selectionBoxStart.x);
+                    const y = Math.min(mousePos.y, state.selectionBoxStart.y);
+                    const w = Math.abs(mousePos.x - state.selectionBoxStart.x);
+                    const h = Math.abs(mousePos.y - state.selectionBoxStart.y);
+                    selectionBoxEl.style.left = `${x}px`;
+                    selectionBoxEl.style.top = `${y}px`;
+                    selectionBoxEl.style.width = `${w}px`;
+                    selectionBoxEl.style.height = `${h}px`;
+
+                } else if (state.draggingItem) { // Node or Control Point
+                    const worldDx = dx / state.cameraZoom;
+                    const worldDy = dy / state.cameraZoom;
+
+                    if (state.draggingItem.point) { // Dragging a control point ('c1' or 'c2')
+                        const pointName = state.draggingItem.point === 'c1' ? 'control1' : 'control2';
+                        state.draggingItem.edge[pointName].x += worldDx;
+                        state.draggingItem.edge[pointName].y += worldDy;
+
+                    } else { // Dragging a node
+                        if (isItemSelected('node', state.draggingItem.id)) {
+                            // Move all selected nodes
+                            state.selectedItems.forEach(item => {
+                                if (item.type === 'node') {
+                                    const node = findNodeById(item.id);
+                                    if (node) {
+                                        node.x += worldDx;
+                                        node.y += worldDy;
+                                        moveAttachedEdgeControls(node, worldDx, worldDy);
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    generateTikz();
+                }
+
+                state.lastMousePos = mousePos;
+                updateCursor(e);
+            });
+            
+            function isEdgeCurved(edge, n1, n2) {
+                if (!n1 || !n2) return false;
+                const c1_default_x = (2 * n1.x + n2.x) / 3;
+                const c1_default_y = (2 * n1.y + n2.y) / 3;
+                const c2_default_x = (n1.x + 2 * n2.x) / 3;
+                const c2_default_y = (n1.y + 2 * n2.y) / 3;
+                
+                return Math.hypot(edge.control1.x - c1_default_x, edge.control1.y - c1_default_y) > 0.1 ||
+                        Math.hypot(edge.control2.x - c2_default_x, edge.control2.y - c2_default_y) > 0.1;
+            }
+
+            function moveAttachedEdgeControls(node, worldDx, worldDy) {
+                const startNode = node; 
+                
+                edges.forEach(edge => {
+                    let n1, n2, old_n1, old_n2, nodeToMove;
+                    
+                    if (edge.startNodeId === node.id) {
+                        n1 = startNode;
+                        n2 = findNodeById(edge.endNodeId);
+                        if (!n2) return;
+                        old_n1 = { x: n1.x - worldDx, y: n1.y - worldDy };
+                        old_n2 = n2;
+                        nodeToMove = 'c1';
+                    } else if (edge.endNodeId === node.id) {
+                        n1 = findNodeById(edge.startNodeId);
+                        n2 = startNode;
+                        if (!n1) return;
+                        old_n1 = n1;
+                        old_n2 = { x: n2.x - worldDx, y: n2.y - worldDy };
+                        nodeToMove = 'c2';
+                    } else {
+                        return; 
+                    }
+
+                    const wasCurved = isEdgeCurved(edge, old_n1, old_n2);
+
+                    if (wasCurved) {
+                        if (nodeToMove === 'c1') {
+                            edge.control1.x += worldDx;
+                            edge.control1.y += worldDy;
+                        } else { 
+                            edge.control2.x += worldDx;
+                            edge.control2.y += worldDy;
+                        }
+                    } else {
+                        edge.control1 = { x: (2 * n1.x + n2.x) / 3, y: (2 * n1.y + n2.y) / 3 };
+                        edge.control2 = { x: (n1.x + 2 * n2.x) / 3, y: (n1.y + 2 * n2.y) / 3 };
+                    }
+                });
+            }
+
+            canvas.addEventListener('mouseup', (e) => {
+                if (e.button === 0) { // Left mouse button
+                    if (state.isDrawingBox) {
+                        state.isDrawingBox = false;
+                        selectionBoxEl.classList.add('hidden');
+                        selectItemsInBox(selectionBoxEl.style);
+                        setTool('select');
+                    }
+                }
+                
+                state.isPanning = false;
+                state.draggingItem = null;
+                updateCursor(e);
+            });
+            
+            function selectItemsInBox(boxStyle) {
+                const x = parseFloat(boxStyle.left);
+                const y = parseFloat(boxStyle.top);
+                const w = parseFloat(boxStyle.width);
+                const h = parseFloat(boxStyle.height);
+                
+                const world1 = screenToWorld(x, y);
+                const world2 = screenToWorld(x + w, y + h);
+                
+                const boxWorld = {
+                    x1: Math.min(world1.x, world2.x),
+                    y1: Math.min(world1.y, world2.y),
+                    x2: Math.max(world1.x, world2.x),
+                    y2: Math.max(world1.y, world2.y),
+                };
+
+                let newSelectedItems = [];
+                let selectedNodeIds = new Set();
+                
+                nodes.forEach(node => {
+                    if (node.x >= boxWorld.x1 && node.x <= boxWorld.x2 &&
+                        node.y >= boxWorld.y1 && node.y <= boxWorld.y2) {
+                        newSelectedItems.push({ type: 'node', id: node.id });
+                        selectedNodeIds.add(node.id);
+                    }
+                });
+                
+                edges.forEach(edge => {
+                    if (selectedNodeIds.has(edge.startNodeId) && selectedNodeIds.has(edge.endNodeId)) {
+                        newSelectedItems.push({ type: 'edge', id: edge.id });
+                    }
+                });
+                
+                setSelection(newSelectedItems);
+            }
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const mousePos = getMousePos(e);
+                const zoomAmount = e.deltaY < 0 ? ZOOM_SENSITIVITY : 1 / ZOOM_SENSITIVITY;
+                
+                const mouseWorldPosBefore = screenToWorld(mousePos.x, mousePos.y);
+                state.cameraZoom *= zoomAmount;
+                const mouseWorldPosAfter = screenToWorld(mousePos.x, mousePos.y);
+                
+                state.cameraOffset.x += (mouseWorldPosAfter.x - mouseWorldPosBefore.x) * state.cameraZoom;
+                state.cameraOffset.y += (mouseWorldPosAfter.y - mouseWorldPosBefore.y) * state.cameraZoom;
+
+                zoomLevelEl.textContent = state.cameraZoom.toFixed(2);
+            });
+
+            canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+            // --- Toolbar Logic ---
+            toolbar.addEventListener('click', (e) => {
+                const btn = e.target.closest('button');
+                if (!btn) return;
+                
+                if (btn.id === 'tool-select') setTool('select');
+                else if (btn.id === 'tool-box-select') setTool('box-select');
+                else if (btn.id === 'tool-node') setTool('node');
+                else if (btn.id === 'tool-edge') setTool('edge');
+                else if (btn.id === 'tool-dir-edge') setTool('dir-edge');
+                else if (btn.id === 'tool-curve') setTool('curve');
+            });
+            
+            window.addEventListener('keydown', (e) => {
+                if (document.activeElement === nodeLabelInput) return; 
+                switch(e.key.toLowerCase()) {
+                    case 'v': setTool('select'); break;
+                    case 'b': setTool('box-select'); break;
+                    case 'n': setTool('node'); break;
+                    case 'e': setTool('edge'); break;
+                    case 'd': setTool('dir-edge'); break;
+                    case 'c': setTool('curve'); break;
+                    case 'delete':
+                    case 'backspace':
+                        if (state.selectedItems.length > 0) deleteSelectedItems();
+                        break;
+                    case 'escape': 
+                        state.isDrawingEdge = false;
+                        state.edgeStartNode = null;
+                        setTool('select');
+                        break;
+                }
+            });
+
+            function setTool(toolName) {
+                if (toolName !== 'edge' && toolName !== 'dir-edge') {
+                    state.isDrawingEdge = false;
+                    state.edgeStartNode = null;
+                }
+                
+                state.selectedTool = toolName;
+                toolSelectBtn.classList.toggle('active', toolName === 'select');
+                toolBoxSelectBtn.classList.toggle('active', toolName === 'box-select');
+                toolNodeBtn.classList.toggle('active', toolName === 'node');
+                toolEdgeBtn.classList.toggle('active', toolName === 'edge');
+                toolDirEdgeBtn.classList.toggle('active', toolName === 'dir-edge');
+                toolCurveBtn.classList.toggle('active', toolName === 'curve');
+                
+                const nameMap = {
+                    'select': 'Select', 'box-select': 'Box Select', 'node': 'Add Node', 
+                    'edge': 'Add Edge', 'dir-edge': 'Add Arrow', 'curve': 'Edit Curve'
+                };
+                toolNameEl.textContent = nameMap[toolName] || 'Select';
+                updateCursor();
+            }
+
+            function updateCursor() {
+                if (state.isPanning) canvas.style.cursor = 'grabbing';
+                else if (state.draggingItem) canvas.style.cursor = 'grabbing';
+                else if (state.selectedTool === 'node') canvas.style.cursor = 'cell';
+                else if (state.selectedTool === 'edge' || state.selectedTool === 'dir-edge') canvas.style.cursor = 'crosshair';
+                else if (state.selectedTool === 'box-select') canvas.style.cursor = 'crosshair';
+                else {
+                    let hitNode = null, hitControl = null, hitEdge = null;
+                    
+                    if (state.selectedTool === 'select') {
+                        hitNode = getHitNode(state.mouseWorldPos);
+                        if (!hitNode) hitEdge = getHitEdge(state.mouseWorldPos);
+                    } else if (state.selectedTool === 'curve') {
+                        hitControl = getHitEdgeControlPoint(state.mouseWorldPos);
+                        if (!hitControl) hitEdge = getHitEdge(state.mouseWorldPos);
+                    }
+                    
+                    if (hitNode || hitControl) canvas.style.cursor = 'grab';
+                    else if (hitEdge) canvas.style.cursor = 'pointer';
+                    else canvas.style.cursor = 'default';
+                }
+            }
+            
+            function updateMouseCoords(screenX, screenY) {
+                const worldPos = screenToWorld(screenX, screenY);
+                mouseXEl.textContent = (worldPos.x * TIKZ_SCALE).toFixed(1);
+                mouseYEl.textContent = (-worldPos.y * TIKZ_SCALE).toFixed(1); // Flipped Y for TikZ
+            }
+
+            // --- Graph Logic ---
+
+            function addNode(x, y) {
+                const newNode = {
+                    id: Date.now(),
+                    x,
+                    y,
+                    label: `v_{${nodes.length + 1}}`,
+                    color: 'red',
+                    labelPosition: 'anchor=south'
+                };
+                nodes.push(newNode);
+                generateTikz();
+            }
+            
+            function addEdge(startNodeId, endNodeId, directed = false) {
+                const exists = edges.some(e => 
+                    (e.startNodeId === startNodeId && e.endNodeId === endNodeId) ||
+                    (e.startNodeId === endNodeId && e.endNodeId === startNodeId)
+                );
+                if (exists) return;
+
+                const startNode = findNodeById(startNodeId);
+                const endNode = findNodeById(endNodeId);
+                
+                const newEdge = {
+                    id: Date.now(),
+                    startNodeId,
+                    endNodeId,
+                    color: 'black',
+                    style: 'thick',
+                    directed: directed,
+                    control1: { x: (2 * startNode.x + endNode.x) / 3, y: (2 * startNode.y + endNode.y) / 3 },
+                    control2: { x: (startNode.x + 2 * endNode.x) / 3, y: (startNode.y + 2 * endNode.y) / 3 }
+                };
+                edges.push(newEdge);
+                generateTikz();
+            }
+            
+            function deleteSelectedItems() {
+                if (state.selectedItems.length === 0) return;
+
+                const nodesToDelete = new Set(state.selectedItems.filter(i => i.type === 'node').map(i => i.id));
+                const edgesToDelete = new Set(state.selectedItems.filter(i => i.type === 'edge').map(i => i.id));
+                
+                nodes = nodes.filter(n => !nodesToDelete.has(n.id));
+                edges = edges.filter(e => 
+                    !edgesToDelete.has(e.id) &&
+                    !nodesToDelete.has(e.startNodeId) && 
+                    !nodesToDelete.has(e.endNodeId)
+                );
+                
+                setSelection([]);
+                generateTikz();
+            }
+
+            function findNodeById(id) {
+                return nodes.find(n => n.id === id);
+            }
+            
+            function findEdgeById(id) {
+                return edges.find(e => e.id === id);
+            }
+            
+            function isItemSelected(type, id) {
+                return state.selectedItems.some(item => item.type === type && item.id === id);
+            }
+
+            // --- Inspector Logic ---
+            function setSelection(items) {
+                state.selectedItems = items;
+                updateInspector();
+            }
+
+            function updateInspector() {
+                const count = state.selectedItems.length;
+                
+                if (count === 0) {
+                    inspectorPanel.classList.add('hidden');
+                    inspectorPlaceholder.classList.remove('hidden');
+                    return;
+                }
+                
+                inspectorPanel.classList.remove('hidden');
+                inspectorPlaceholder.classList.add('hidden');
+                
+                const hasNodes = state.selectedItems.some(i => i.type === 'node');
+                const hasEdges = state.selectedItems.some(i => i.type === 'edge');
+                
+                nodeProps.classList.toggle('hidden', !hasNodes);
+                edgeProps.classList.toggle('hidden', !hasEdges);
+                
+                if (count === 1) {
+                    const item = state.selectedItems[0];
+                    if (item.type === 'node') {
+                        const node = findNodeById(item.id);
+                        inspectorTitle.textContent = `Node (${node.label})`;
+                        nodeLabelGroup.classList.remove('hidden');
+                        nodeLabelPosGroup.classList.remove('hidden');
+                        nodeLabelInput.value = node.label;
+                        nodeColorInput.value = node.color;
+                        nodeLabelPosInput.value = node.labelPosition;
+                    } else { // edge
+                        const edge = findEdgeById(item.id);
+                        const n1 = findNodeById(edge.startNodeId);
+                        const n2 = findNodeById(edge.endNodeId);
+                        inspectorTitle.textContent = `Edge (${n1.label} - ${n2.label})`;
+                        edgeDirectedGroup.classList.remove('hidden');
+                        edgeColorInput.value = edge.color;
+                        edgeStyleInput.value = edge.style;
+                        edgeDirectedCheckbox.checked = edge.directed;
+                    }
+                } else { // Multiple items
+                    inspectorTitle.textContent = `${count} items selected`;
+                    nodeLabelGroup.classList.add('hidden');
+                    nodeLabelPosGroup.classList.add('hidden');
+                    edgeDirectedGroup.classList.add('hidden'); // Hide specific toggles
+                }
+            }
+
+            // Inspector event listeners
+            nodeLabelInput.addEventListener('input', (e) => {
+                if (state.selectedItems.length === 1 && state.selectedItems[0].type === 'node') {
+                    const node = findNodeById(state.selectedItems[0].id);
+                    node.label = e.target.value;
+                    inspectorTitle.textContent = `Node (${node.label})`;
+                    generateTikz();
+                }
+            });
+            nodeColorInput.addEventListener('change', (e) => {
+                const newColor = e.target.value;
+                state.selectedItems.forEach(item => {
+                    if (item.type === 'node') {
+                        findNodeById(item.id).color = newColor;
+                    }
+                });
+                generateTikz();
+            });
+            nodeLabelPosInput.addEventListener('change', (e) => {
+                 if (state.selectedItems.length === 1 && state.selectedItems[0].type === 'node') {
+                    findNodeById(state.selectedItems[0].id).labelPosition = e.target.value;
+                    generateTikz();
+                }
+            });
+            edgeColorInput.addEventListener('change', (e) => {
+                const newColor = e.target.value;
+                 state.selectedItems.forEach(item => {
+                    if (item.type === 'edge') {
+                        findEdgeById(item.id).color = newColor;
+                    }
+                });
+                generateTikz();
+            });
+            edgeStyleInput.addEventListener('change', (e) => {
+                const newStyle = e.target.value;
+                 state.selectedItems.forEach(item => {
+                    if (item.type === 'edge') {
+                        findEdgeById(item.id).style = newStyle;
+                    }
+                });
+                generateTikz();
+            });
+            edgeDirectedCheckbox.addEventListener('change', (e) => {
+                const isDirected = e.target.checked;
+                 state.selectedItems.forEach(item => {
+                    if (item.type === 'edge') {
+                        findEdgeById(item.id).directed = isDirected;
+                    }
+                });
+                generateTikz();
+            });
+            deleteBtn.addEventListener('click', deleteSelectedItems);
+
+
+            // --- TikZ Output ---
+            
+            function generateTikz() {
+                if (nodes.length === 0 && edges.length === 0) {
+                    tikzOutput.textContent = "% Add nodes and edges to generate TikZ code...";
+                    return;
+                }
+
+                let code = "";
+
+                // --- Edges ---
+                code += "% --- Edges ---\n";
+                edges.forEach(edge => {
+                    const startNode = findNodeById(edge.startNodeId);
+                    const endNode = findNodeById(edge.endNodeId);
+                    if (!startNode || !endNode) return;
+
+                    const tx1 = (startNode.x * TIKZ_SCALE).toFixed(2);
+                    const ty1 = (-startNode.y * TIKZ_SCALE).toFixed(2); // Invert Y
+                    const tx2 = (endNode.x * TIKZ_SCALE).toFixed(2);
+                    const ty2 = (-endNode.y * TIKZ_SCALE).toFixed(2); // Invert Y
+
+                    // *** TIKZ OUTPUT FIX ***
+                    const style = [edge.color, edge.style].join(', ');
+                    
+                    if (isEdgeCurved(edge, startNode, endNode)) {
+                        const edgeType = edge.directed ? ', ->' : ''; // Add arrow to style if needed
+                        const cx1 = (edge.control1.x * TIKZ_SCALE).toFixed(2);
+                        const cy1 = (-edge.control1.y * TIKZ_SCALE).toFixed(2);
+                        const cx2 = (edge.control2.x * TIKZ_SCALE).toFixed(2);
+                        const cy2 = (-edge.control2.y * TIKZ_SCALE).toFixed(2);
+                        code += `\\draw[${style}${edgeType}] (${tx1},${ty1}) .. controls (${cx1},${cy1}) and (${cx2},${cy2}) .. (${tx2},${ty2});\n`;
+                    } else {
+                        const edgeType = edge.directed ? '->' : '--'; // This is the operator
+                        code += `\\draw[${style}] (${tx1},${ty1}) ${edgeType} (${tx2},${ty2});\n`;
+                    }
+                });
+
+                // --- Nodes ---
+                code += "\n% --- Nodes ---\n";
+                nodes.forEach(node => {
+                    const tx = (node.x * TIKZ_SCALE).toFixed(2);
+                    const ty = (-node.y * TIKZ_SCALE).toFixed(2); // Invert Y
+                    const label = node.label; 
+                    
+                    code += `\\filldraw[fill=${node.color}, draw=black] (${tx},${ty}) circle (${TIKZ_NODE_RADIUS}pt) node[${node.labelPosition}] {$${label}$};\n`;
+                });
+
+                tikzOutput.textContent = code;
+            }
+
+            copyBtn.addEventListener('click', () => {
+                const code = tikzOutput.textContent;
+                copyTextarea.value = code;
+                copyTextarea.select();
+                try {
+                    document.execCommand('copy');
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => { copyBtn.textContent = 'Copy TikZ Code'; }, 2000);
+                } catch (err) {
+                    console.error('Failed to copy text: ', err);
+                    copyBtn.textContent = 'Error!';
+                    setTimeout(() => { copyBtn.textContent = 'Copy TikZ Code'; }, 2000);
+                }
+            });
+
+            exportBtn.addEventListener('click', () => {
+                const tikzCode = tikzOutput.textContent;
+                const fullTexCode = `\\documentclass[tikz,border=2pt]{standalone}
+\\usepackage{tikz}
+\\usepackage[dvipsnames]{xcolor}
+\\usetikzlibrary{arrows.meta, positioning, calc}
+
+\\begin{document}
+\\begin{tikzpicture}
+${tikzCode}
+\\end{tikzpicture}
+\\end{document}
+`;
+                const blob = new Blob([fullTexCode], { type: 'text/x-latex' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'tikz-graph.tex';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+            });
+
+            // --- Helpers ---
+            function getLineWidth(style) {
+                switch(style) {
+                    case 'thin': return 0.5;
+                    case 'thick': return 2;
+                    default: return 1;
+                }
+            }
+            
+            function setLineDash(style) {
+                switch(style) {
+                    case 'dashed': ctx.setLineDash([5, 5]); break;
+                    case 'dotted': ctx.setLineDash([1, 3]); break;
+                    default: ctx.setLineDash([]);
+                }
+            }
+            
+            function getLabelPosition(pos, offset) {
+                switch(pos) {
+                    case 'anchor=north': return [{ h: 'center', v: 'top' }, { x: 0, y: -offset }];
+                    case 'anchor=south': return [{ h: 'center', v: 'bottom' }, { x: 0, y: offset }];
+                    case 'anchor=east': return [{ h: 'right', v: 'middle' }, { x: offset, y: 0 }];
+                    case 'anchor=west': return [{ h: 'left', v: 'middle' }, { x: -offset, y: 0 }];
+                    case 'above': return [{ h: 'center', v: 'bottom' }, { x: 0, y: -offset }];
+                    case 'below': return [{ h: 'center', v: 'top' }, { x: 0, y: offset }];
+                    case 'left': return [{ h: 'right', v: 'middle' }, { x: -offset, y: 0 }];
+                    case 'right': return [{ h: 'left', v: 'middle' }, { x: offset, y: 0 }];
+                    default: return [{ h: 'center', v: 'bottom' }, { x: 0, y: offset }];
+                }
+            }
+
+            // --- Initial Setup ---
+            initialize();
+            
+        });
+    </script>
+</body>
+</html>
